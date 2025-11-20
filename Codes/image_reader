@@ -1,0 +1,78 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 19.11.2025 15:14:09
+// Design Name: 
+// Module Name: image_reader
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+module image_reader(
+    input clk,
+    input rst_n,
+    input data_asked,
+    output reg [7:0] pixel,
+    output reg pixel_fetched
+);
+
+    reg [5:0] address;     // 0-63 for 8x8 image
+    reg [2:0] row;         // 0-7
+    reg [2:0] column;      // 0-7
+    wire [7:0] bram_data;
+    
+    // Address calculation (row-wise reading)
+    wire [5:0] next_address = row * 8 + column;
+    
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            address <= 6'd0;
+            row <= 3'd0;
+            column <= 3'd0;
+            pixel <= 8'd0;
+            pixel_fetched <= 1'b0;
+        end else begin
+            if (data_asked) begin
+                // Read current pixel
+                pixel <= bram_data;
+                pixel_fetched <= 1'b1;
+                
+                // Update address for next read
+                if (column < 7) begin
+                    column <= column + 1;
+                end else begin
+                    column <= 3'd0;
+                    if (row < 7) begin
+                        row <= row + 1;
+                    end else begin
+                        row <= 3'd0; // Wrap around
+                    end
+                end
+                
+                address <= next_address;
+            end else begin
+                pixel_fetched <= 1'b0;
+            end
+        end
+    end
+    
+    // Image BRAM instance (Xilinx Block Memory Generator IP)
+    blk_mem_gen_0 img_bram (
+        .clka(clk),
+        
+        .addra(address),
+        .douta(bram_data)
+    );
+
+endmodule
