@@ -1,0 +1,145 @@
+module fft8 (
+    input  wire clk,
+    input  wire signed [7:0] x0, x1, x2, x3, x4, x5, x6, x7,
+
+    output wire signed [11:0] X0_re, X0_im,
+    output wire signed [11:0] X1_re, X1_im,
+    output wire signed [11:0] X2_re, X2_im,
+    output wire signed [11:0] X3_re, X3_im,
+    output wire signed [11:0] X4_re, X4_im,
+    output wire signed [11:0] X5_re, X5_im,
+    output wire signed [11:0] X6_re, X6_im,
+    output wire signed [11:0] X7_re, X7_im,
+
+    output wire fft_valid
+);
+
+wire signed [9:0] E0_re, E0_im, E1_re, E1_im, E2_re, E2_im, E3_re, E3_im;
+
+fourfft FFT_even (
+    .clk(clk),
+    .pixel0(x0), .pixel1(x2), .pixel2(x4), .pixel3(x6),
+    .fp0_re(E0_re), .fp0_im(E0_im),
+    .fp1_re(E1_re), .fp1_im(E1_im),
+    .fp2_re(E2_re), .fp2_im(E2_im),
+    .fp3_re(E3_re), .fp3_im(E3_im)
+);
+
+wire signed [9:0] O0_re, O0_im, O1_re, O1_im, O2_re, O2_im, O3_re, O3_im;
+
+fourfft FFT_odd (
+    .clk(clk),
+    .pixel0(x1), .pixel1(x3), .pixel2(x5), .pixel3(x7),
+    .fp0_re(O0_re), .fp0_im(O0_im),
+    .fp1_re(O1_re), .fp1_im(O1_im),
+    .fp2_re(O2_re), .fp2_im(O2_im),
+    .fp3_re(O3_re), .fp3_im(O3_im)
+);
+
+localparam signed [15:0] W8_1_PHASE = -16'd6434;
+localparam signed [15:0] W8_3_PHASE = -16'd19302;
+
+wire phase_valid = 1'b1;
+
+wire [31:0] W8_1_tdata_full;
+wire [31:0] W8_3_tdata_full;
+wire W8_1_valid;
+wire W8_3_valid;
+
+cordic_0 cordic_w1 (
+    .aclk(clk),
+    .s_axis_phase_tvalid(phase_valid),
+    .s_axis_phase_tdata(W8_1_PHASE),
+    .m_axis_dout_tvalid(W8_1_valid),
+    .m_axis_dout_tdata(W8_1_tdata_full)
+);
+
+cordic_0 cordic_w3 (
+    .aclk(clk),
+    .s_axis_phase_tvalid(phase_valid),
+    .s_axis_phase_tdata(W8_3_PHASE),
+    .m_axis_dout_tvalid(W8_3_valid),
+    .m_axis_dout_tdata(W8_3_tdata_full)
+);
+
+wire signed [15:0] W8_1_cos_full = W8_1_tdata_full[31:16];
+wire signed [15:0] W8_1_sin_full = W8_1_tdata_full[15:0];
+wire signed [15:0] W8_3_cos_full = W8_3_tdata_full[31:16];
+wire signed [15:0] W8_3_sin_full = W8_3_tdata_full[15:0];
+
+wire signed [7:0] W8_1_cos = W8_1_cos_full[15:8];
+wire signed [7:0] W8_1_sin = W8_1_sin_full[15:8];
+wire signed [7:0] W8_3_cos = W8_3_cos_full[15:8];
+wire signed [7:0] W8_3_sin = W8_3_sin_full[15:8];
+
+always @(posedge clk) begin
+    if (W8_1_valid)
+        $display("TW1: cos=%0d sin=%0d", W8_1_cos_full, W8_1_sin_full);
+    if (W8_3_valid)
+        $display("TW3: cos=%0d sin=%0d", W8_3_cos_full, W8_3_sin_full);
+end
+
+assign fft_valid = W8_1_valid & W8_3_valid;
+
+function signed [11:0] cmult_re;
+    input signed [9:0] xr, xi;
+    input signed [7:0] wr, wi;
+    reg signed [17:0] p1, p2;
+    begin
+        p1 = xr * wr;
+        p2 = xi * wi;
+        cmult_re = (p1 - p2) >>> 7;
+    end
+endfunction
+
+function signed [11:0] cmult_im;
+    input signed [9:0] xr, xi;
+    input signed [7:0] wr, wi;
+    reg signed [17:0] p1, p2;
+    begin
+        p1 = xr * wi;
+        p2 = xi * wr;
+        cmult_im = (p1 + p2) >>> 7;
+    end
+endfunction
+
+wire signed [11:0] T0_re = {{2{O0_re[9]}}, O0_re};
+wire signed [11:0] T0_im = {{2{O0_im[9]}}, O0_im};
+
+wire signed [11:0] T1_re = cmult_re(O1_re, O1_im, W8_1_cos, W8_1_sin);
+wire signed [11:0] T1_im = cmult_im(O1_re, O1_im, W8_1_cos, W8_1_sin);
+
+wire signed [11:0] T2_re = {{2{O2_im[9]}}, O2_im};
+wire signed [11:0] T2_im = -{{2{O2_re[9]}}, O2_re};
+
+wire signed [11:0] T3_re = cmult_re(O3_re, O3_im, W8_3_cos, W8_3_sin);
+wire signed [11:0] T3_im = cmult_im(O3_re, O3_im, W8_3_cos, W8_3_sin);
+
+wire signed [11:0] E0_re_ext = {{2{E0_re[9]}}, E0_re};
+wire signed [11:0] E0_im_ext = {{2{E0_im[9]}}, E0_im};
+wire signed [11:0] E1_re_ext = {{2{E1_re[9]}}, E1_re};
+wire signed [11:0] E1_im_ext = {{2{E1_im[9]}}, E1_im};
+wire signed [11:0] E2_re_ext = {{2{E2_re[9]}}, E2_re};
+wire signed [11:0] E2_im_ext = {{2{E2_im[9]}}, E2_im};
+wire signed [11:0] E3_re_ext = {{2{E3_re[9]}}, E3_re};
+wire signed [11:0] E3_im_ext = {{2{E3_im[9]}}, E3_im};
+
+assign X0_re = E0_re_ext + T0_re;
+assign X0_im = E0_im_ext + T0_im;
+assign X1_re = E1_re_ext + T1_re;
+assign X1_im = E1_im_ext + T1_im;
+assign X2_re = E2_re_ext + T2_re;
+assign X2_im = E2_im_ext + T2_im;
+assign X3_re = E3_re_ext + T3_re;
+assign X3_im = E3_im_ext + T3_im;
+
+assign X4_re = E0_re_ext - T0_re;
+assign X4_im = E0_im_ext - T0_im;
+assign X5_re = E1_re_ext - T1_re;
+assign X5_im = E1_im_ext - T1_im;
+assign X6_re = E2_re_ext - T2_re;
+assign X6_im = E2_im_ext - T2_im;
+assign X7_re = E3_re_ext - T3_re;
+assign X7_im = E3_im_ext - T3_im;
+
+endmodule
