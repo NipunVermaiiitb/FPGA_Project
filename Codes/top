@@ -1,0 +1,266 @@
+module top(
+    input  wire clk,
+    input  wire rst_n,
+    output reg  fft_done
+);
+
+parameter S_IDLE           = 5'd0;
+parameter S_READ_ROW       = 5'd1;
+parameter S_START_FFT_ROW  = 5'd2;
+parameter S_WAIT_FFT_ROW   = 5'd3;
+parameter S_STORE_ROW      = 5'd4;
+parameter S_NEXT_ROW       = 5'd5;
+parameter S_START_COL_LOOP = 5'd6;
+parameter S_READ_COL_REAL  = 5'd7;
+parameter S_START_FFT_COLR = 5'd8;
+parameter S_WAIT_FFT_COLR  = 5'd9;
+parameter S_CAPTURE_FR     = 5'd10;
+parameter S_READ_COL_IMAG  = 5'd11;
+parameter S_START_FFT_COLI = 5'd12;
+parameter S_WAIT_FFT_COLI  = 5'd13;
+parameter S_CAPTURE_FI     = 5'd14;
+parameter S_COMBINE_WRITE  = 5'd15;
+parameter S_NEXT_COLUMN    = 5'd16;
+parameter S_DONE           = 5'd17;
+
+reg [4:0] state, next_state;
+reg [2:0] row_idx, col_idx;
+reg [2:0] row_read_count, row_store_count;
+reg [2:0] col_read_count, col_store_count;
+
+reg data_needed;
+wire [7:0] pixel;
+wire pixel_fetched;
+
+reg signed [7:0] x [0:7];
+wire signed [11:0] X_re [0:7];
+wire signed [11:0] X_im [0:7];
+wire fft_valid;
+
+ila_0 your_instance_name (
+	.clk(clk),
+	.probe0(fft_done)
+);
+
+reg signed [23:0] row_mem   [0:63];
+reg signed [23:0] final_mem [0:63];
+
+reg signed [11:0] Fr_re [0:7], Fr_im [0:7];
+reg signed [11:0] Fi_re [0:7], Fi_im [0:7];
+
+integer i;
+
+image_reader img (
+    .clk(clk),
+    .rst_n(rst_n),
+    .data_asked(data_needed),
+    .pixel(pixel),
+    .pixel_fetched(pixel_fetched)
+);
+
+fft8 fft_inst (
+    .clk(clk),
+    .x0(x[0]), .x1(x[1]), .x2(x[2]), .x3(x[3]),
+    .x4(x[4]), .x5(x[5]), .x6(x[6]), .x7(x[7]),
+    .X0_re(X_re[0]), .X0_im(X_im[0]),
+    .X1_re(X_re[1]), .X1_im(X_im[1]),
+    .X2_re(X_re[2]), .X2_im(X_im[2]),
+    .X3_re(X_re[3]), .X3_im(X_im[3]),
+    .X4_re(X_re[4]), .X4_im(X_im[4]),
+    .X5_re(X_re[5]), .X5_im(X_im[5]),
+    .X6_re(X_re[6]), .X6_im(X_im[6]),
+    .X7_re(X_re[7]), .X7_im(X_im[7]),
+    .fft_valid(fft_valid)
+);
+
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        state <= S_IDLE;
+        fft_done <= 1'b0;
+
+        row_idx <= 0; col_idx <= 0;
+        row_read_count <= 0; row_store_count <= 0;
+        col_read_count <= 0; col_store_count <= 0;
+
+        data_needed <= 1'b0;
+
+        for (i = 0; i < 8; i=i+1) begin
+            x[i] <= 0;
+            Fr_re[i] <= 0; Fr_im[i] <= 0;
+            Fi_re[i] <= 0; Fi_im[i] <= 0;
+        end
+        for (i = 0; i < 64; i=i+1) begin
+            row_mem[i] <= 0;
+            final_mem[i] <= 0;
+        end
+
+    end else begin
+        state <= next_state;
+
+        case (state)
+
+        S_IDLE: begin
+            fft_done <= 1'b0;
+            data_needed <= 1'b1;
+        end
+
+        S_READ_ROW: begin
+            data_needed <= 1'b1;
+            if (pixel_fetched) begin
+                x[row_read_count] <= pixel;
+                row_read_count <= (row_read_count == 3'd7) ? 0 :
+                                   row_read_count + 1'b1;
+            end
+        end
+
+        S_START_FFT_ROW: begin
+            data_needed <= 1'b0;
+        end
+
+        S_WAIT_FFT_ROW: begin end
+
+        S_STORE_ROW: begin
+            row_mem[row_idx*8 + row_store_count] <=
+                {X_im[row_store_count], X_re[row_store_count]};
+            row_store_count <= (row_store_count == 3'd7) ? 0 :
+                                row_store_count + 1'b1;
+        end
+
+        S_NEXT_ROW: begin
+            row_idx <= (row_idx == 3'd7) ? 0 : row_idx + 1'b1;
+            row_read_count <= 0;
+            row_store_count <= 0;
+            data_needed <= 1'b1;
+        end
+
+        S_START_COL_LOOP: begin
+            col_idx <= 0;
+            col_read_count <= 0;
+        end
+
+        S_READ_COL_REAL: begin
+            x[col_read_count] <=
+                row_mem[col_read_count*8 + col_idx][11:0] >>> 4;
+            col_read_count <= (col_read_count == 3'd7) ? 0 :
+                               col_read_count + 1'b1;
+        end
+
+        S_START_FFT_COLR: begin end
+        S_WAIT_FFT_COLR: begin end
+
+        S_CAPTURE_FR: begin
+            for (i = 0; i < 8; i=i+1) begin
+                Fr_re[i] <= X_re[i];
+                Fr_im[i] <= X_im[i];
+            end
+        end
+
+        S_READ_COL_IMAG: begin
+            x[col_read_count] <=
+               row_mem[col_read_count*8 + col_idx][23:12] >>> 4;
+            col_read_count <= (col_read_count == 3'd7) ? 0 :
+                               col_read_count + 1'b1;
+        end
+
+        S_START_FFT_COLI: begin end
+        S_WAIT_FFT_COLI: begin end
+
+        S_CAPTURE_FI: begin
+            for (i = 0; i < 8; i=i+1) begin
+                Fi_re[i] <= X_re[i];
+                Fi_im[i] <= X_im[i];
+            end
+            col_store_count <= 0;
+        end
+
+        S_COMBINE_WRITE: begin
+            final_mem[col_store_count*8 + col_idx] <= {
+               (Fr_im[col_store_count] + Fi_re[col_store_count]),
+               (Fr_re[col_store_count] - Fi_im[col_store_count])
+            };
+            col_store_count <= (col_store_count == 3'd7) ? 0 :
+                                col_store_count + 1'b1;
+        end
+
+        S_NEXT_COLUMN: begin
+            col_idx <= (col_idx == 3'd7) ? 0 :
+                       col_idx + 1'b1;
+        end
+
+        S_DONE: begin
+            fft_done <= 1'b1;
+        end
+
+        endcase
+    end
+end
+
+always @(*) begin
+    next_state = state;
+
+    case (state)
+
+    S_IDLE: next_state = S_READ_ROW;
+
+    S_READ_ROW:
+        if (row_read_count == 3'd7 && pixel_fetched)
+            next_state = S_START_FFT_ROW;
+
+    S_START_FFT_ROW:
+        next_state = S_WAIT_FFT_ROW;
+
+    S_WAIT_FFT_ROW:
+        if (fft_valid) next_state = S_STORE_ROW;
+
+    S_STORE_ROW:
+        if (row_store_count == 3'd7)
+            next_state = (row_idx == 3'd7) ?
+                          S_START_COL_LOOP : S_NEXT_ROW;
+
+    S_NEXT_ROW:
+        next_state = S_READ_ROW;
+
+    S_START_COL_LOOP:
+        next_state = S_READ_COL_REAL;
+
+    S_READ_COL_REAL:
+        if (col_read_count == 3'd7)
+            next_state = S_START_FFT_COLR;
+
+    S_START_FFT_COLR:
+        next_state = S_WAIT_FFT_COLR;
+
+    S_WAIT_FFT_COLR:
+        if (fft_valid) next_state = S_CAPTURE_FR;
+
+    S_CAPTURE_FR:
+        next_state = S_READ_COL_IMAG;
+
+    S_READ_COL_IMAG:
+        if (col_read_count == 3'd7)
+            next_state = S_START_FFT_COLI;
+
+    S_START_FFT_COLI:
+        next_state = S_WAIT_FFT_COLI;
+
+    S_WAIT_FFT_COLI:
+        if (fft_valid) next_state = S_CAPTURE_FI;
+
+    S_CAPTURE_FI:
+        next_state = S_COMBINE_WRITE;
+
+    S_COMBINE_WRITE:
+        if (col_store_count == 3'd7)
+            next_state = S_NEXT_COLUMN;
+
+    S_NEXT_COLUMN:
+        next_state = (col_idx == 3'd7) ?
+                     S_DONE : S_READ_COL_REAL;
+
+    S_DONE:
+        next_state = S_DONE;
+
+    endcase
+end
+
+endmodule
