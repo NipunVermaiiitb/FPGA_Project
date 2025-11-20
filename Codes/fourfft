@@ -1,0 +1,59 @@
+`timescale 1ns/1ps
+
+module fourfft(
+    input  wire clk,                          // kept for interface consistency
+    input  wire signed [7:0] pixel0,
+    input  wire signed [7:0] pixel1,
+    input  wire signed [7:0] pixel2,
+    input  wire signed [7:0] pixel3,
+
+    output wire signed [9:0] fp0_re,
+    output wire signed [9:0] fp0_im,
+    output wire signed [9:0] fp1_re,
+    output wire signed [9:0] fp1_im,
+    output wire signed [9:0] fp2_re,
+    output wire signed [9:0] fp2_im,
+    output wire signed [9:0] fp3_re,
+    output wire signed [9:0] fp3_im
+);
+
+    // 2-point FFT building blocks
+    wire signed [8:0] inter_even_sum;
+    wire signed [8:0] inter_even_diff;
+    wire signed [8:0] inter_odd_sum;
+    wire signed [8:0] inter_odd_diff;
+
+    twofft even_fft (
+        .pixel1(pixel0),
+        .pixel2(pixel2),
+        .fftpixel1(inter_even_sum),
+        .fftpixel2(inter_even_diff)
+    );
+
+    twofft odd_fft (
+        .pixel1(pixel1),
+        .pixel2(pixel3),
+        .fftpixel1(inter_odd_sum),
+        .fftpixel2(inter_odd_diff)
+    );
+
+    // Sign-extend to 10 bits
+    wire signed [9:0] E0_re = {{1{inter_even_sum[8]}},  inter_even_sum};
+    wire signed [9:0] E1_re = {{1{inter_even_diff[8]}}, inter_even_diff};
+    wire signed [9:0] O0_re = {{1{inter_odd_sum[8]}},   inter_odd_sum};
+    wire signed [9:0] O1_re = {{1{inter_odd_diff[8]}},  inter_odd_diff};
+
+    // 4-point FFT butterfly
+    assign fp0_re = E0_re + O0_re;
+    assign fp0_im = 10'sd0;
+
+    assign fp1_re = E1_re;
+    assign fp1_im = -O1_re;
+
+    assign fp2_re = E0_re - O0_re;
+    assign fp2_im = 10'sd0;
+
+    assign fp3_re = E1_re;
+    assign fp3_im = O1_re;
+
+endmodule
