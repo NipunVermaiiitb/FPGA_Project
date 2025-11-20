@@ -1,0 +1,34 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 19.11.2025 15:13:19
+// Design Name: 
+// Module Name: twofft
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+
+module twofft(
+    input  signed [7:0] pixel1,
+    input  signed [7:0] pixel2,
+    output signed [8:0] fftpixel1,
+    output signed [8:0] fftpixel2
+);
+
+    assign fftpixel1 = pixel1 + pixel2;
+    assign fftpixel2 = pixel1 - pixel2;
+
+endmodule
+
